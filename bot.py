@@ -410,7 +410,7 @@ class CallbackHandlers:
             payment_id=payment_info["payment_id"]
         )
 
-        qr_data = f"upi://pay?pa={payment_info['vpa']}&pn=Example&am={payment_info['amount']}"
+        qr_data = f"upi://pay?pa={payment_info['vpa']}&pn=Example"
         qr_buffer = self.utils.generate_qr_code(qr_data)
         qr_bytes = qr_buffer.getvalue()
         qr_image = BufferedInputFile(qr_bytes, filename="qr_code.png")
