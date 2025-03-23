@@ -92,8 +92,9 @@ class APIClient:
 
 # Rate limiting middleware
 class RateLimitingMiddleware:
-    def __init__(self, storage):
+    def __init__(self, storage, staff_service):
         self.storage = storage
+        self.staff_service = staff_service  # Add staff service to check if user is staff
 
     async def __call__(
         self,
@@ -103,6 +104,11 @@ class RateLimitingMiddleware:
     ) -> Any:
         user = data.get("event_from_user")
         if not user:
+            return await handler(event, data)
+
+        # Check if the user is staff
+        if await self.staff_service.is_staff(user.id):
+            # Skip rate limiting for staff members
             return await handler(event, data)
 
         # Get rate limit config based on handler
@@ -684,43 +690,46 @@ class StateHandlers:
             if file.file_size > MAX_FILE_SIZE_MB * 1024 * 1024:
                 await message.answer(f"File too large. Maximum size is {MAX_FILE_SIZE_MB}MB.")
                 return
+
+            # Construct the file URL
+            file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file.file_path}"
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(file_url) as response:
+                    if response.status == 200:
+                        file_data = await response.read()
+                        file_name = f"receipt_{message.from_user.id}_{int(time.time())}.png"
+                        receipt_url = await self.utils.save_file_locally(file_data, file_name)
+
+                        user_data = await state.get_data()
+                        payment_data = {
+                            "subscription_id": user_data["subscription_id"],
+                            "amount": user_data["plan_price"],
+                            "receipt_url": receipt_url
+                        }
+
+                        await self.api_client.request("PUT", f"/payments/{user_data['payment_id']}", payment_data)
+                        await message.answer("✅ Payment received! Awaiting staff verification.")
+                        await state.clear()
+
+                        if STAFF_CHAT_ID:
+                            try:
+                                with open(os.path.join("receipts", file_name), "rb") as f:
+                                    receipt_bytes = f.read()
+
+                                await bot.send_photo(
+                                    chat_id=STAFF_CHAT_ID,
+                                    photo=BufferedInputFile(receipt_bytes, filename=file_name),
+                                    caption=f"Payment receipt for subscription {user_data['subscription_id']}"
+                                )
+                            except Exception as e:
+                                logger.error(f"Failed to notify staff: {e}")
+                    else:
+                        await message.answer("Failed to download the receipt. Please try again.")
         except Exception as e:
             logger.error(f"File size check failed: {e}")
             await message.answer("Error processing file. Please try again.")
             return
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(file_url) as response:
-                if response.status == 200:
-                    file_data = await response.read()
-                    file_name = f"receipt_{message.from_user.id}_{int(time.time())}.png"
-                    receipt_url = await self.utils.save_file_locally(file_data, file_name)
-
-                    user_data = await state.get_data()
-                    payment_data = {
-                        "subscription_id": user_data["subscription_id"],
-                        "amount": user_data["plan_price"],
-                        "receipt_url": receipt_url
-                    }
-
-                    await self.api_client.request("PUT", f"/payments/{user_data['payment_id']}", payment_data)
-                    await message.answer("✅ Payment received! Awaiting staff verification.")
-                    await state.clear()
-
-                    if STAFF_CHAT_ID:
-                        try:
-                            with open(os.path.join("receipts", file_name), "rb") as f:
-                                receipt_bytes = f.read()
-
-                            await bot.send_photo(
-                                chat_id=STAFF_CHAT_ID,
-                                photo=BufferedInputFile(receipt_bytes, filename=file_name),
-                                caption=f"Payment receipt for subscription {user_data['subscription_id']}"
-                            )
-                        except Exception as e:
-                            logger.error(f"Failed to notify staff: {e}")
-                else:
-                    await message.answer("Failed to download the receipt. Please try again.")
 
     async def handle_support_ticket_issue(self, message: Message, state: FSMContext):
         await state.update_data(issue_description=message.text, attachments=[])
@@ -838,9 +847,6 @@ class TelegramBot:
         self.storage = RedisStorage.from_url(REDIS_URL)
         self.dp = Dispatcher(storage=self.storage)
 
-        # Add middleware
-        self.dp.update.middleware(RateLimitingMiddleware(self.storage))
-
         # Setup API client and utilities
         self.api_client = APIClient(API_KEY, API_BASE_URL)
         self.utils = Utils()
@@ -856,6 +862,9 @@ class TelegramBot:
 
         # Pass the bot instance to StateHandlers
         self.state_handlers = StateHandlers(self.api_client, self.utils, self.storage, self.bot)
+
+        # Add middleware with staff_service
+        self.dp.update.middleware(RateLimitingMiddleware(self.storage, self.staff_service))
 
         # Register handlers
         self._register_handlers()
