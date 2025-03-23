@@ -505,7 +505,7 @@ class CallbackHandlers:
 
                 # Get the plan details to retrieve the Telegram channel ID
                 plans = await self.menu_handlers.get_plans()
-                subscription_plan_index = subscription.get("plan_id")
+                subscription_plan_index = subscription.get("plan_id") - 1
                 subscription_plan = plans[subscription_plan_index]["name"]
                 telegram_channel_id = plans[subscription_plan_index].get("telegram_channel_id")
                 logger.info(f"Will notify user {user_to_notify} about payment verification")
