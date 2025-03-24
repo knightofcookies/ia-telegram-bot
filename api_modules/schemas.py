@@ -21,7 +21,7 @@ class SubscriptionUpdate(BaseModel):
 class UserCreate(BaseModel):
     user_id: int
     name: str | None = None
-    email: str | None = None
+    username: str | None = None
 
 class PaymentDetails(BaseModel):
     subscription_id: int
@@ -82,7 +82,7 @@ class UserResponse(BaseModel):
     id: int
     user_id: int
     name: Optional[str] = None
-    email: Optional[str] = None
+    username: Optional[str] = None
 
     class Config:
         orm_mode = True

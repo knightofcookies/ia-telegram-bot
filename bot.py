@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 # Rate limiting configuration
 RATE_LIMITS = {
     "default": {"requests": 10, "seconds": 60},
-    "payment_receipt": {"requests": 3, "seconds": 300},
+    "payment_receipt": {"requests": 5, "seconds": 300},
     "support_ticket": {"requests": 2, "seconds": 3600},
 }
 
@@ -249,6 +249,7 @@ class CommandHandlers:
         user_data = {
             "user_id": telegram_user_id,
             "name": message.from_user.full_name,
+            "username": message.from_user.username,
             "email": None,
         }
 
@@ -370,7 +371,7 @@ class CallbackHandlers:
 
         await query.message.answer(ticket_details, reply_markup=action_keyboard)
 
-    # Helper methods for subscription handling
+# Helper methods for subscription handling
     async def _handle_purchase_subscription(self, query: CallbackQuery):
         plans = await self.menu_handlers.get_plans()
         if not plans or "error" in plans:

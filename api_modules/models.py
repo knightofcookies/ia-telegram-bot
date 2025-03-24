@@ -22,7 +22,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True, nullable=False)
     user_id = Column(BigInteger, unique=True, nullable=False)  # Prevent duplicate Telegram IDs
     name = Column(String(255))
-    email = Column(String(255))
+    username = Column(String(255))
     subscriptions = relationship("Subscription", back_populates="user")
 
 class Plan(Base):

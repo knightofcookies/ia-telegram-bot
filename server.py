@@ -51,7 +51,7 @@ authentication_backend = AdminAuth(secret_key=getenv("SECRET_KEY"))  # Add SECRE
 admin = Admin(app, engine, authentication_backend=authentication_backend)
 
 class UserAdmin(ModelView, model=models.User):
-    column_list = [models.User.id, models.User.user_id, models.User.name, models.User.email, models.User.subscriptions]
+    column_list = [models.User.id, models.User.username, models.User.user_id, models.User.name, models.User.subscriptions]
 
 class SubscriptionAdmin(ModelView, model=models.Subscription):
     column_list = [models.Subscription.id, models.Subscription.plan_id, models.Subscription.plan, models.Subscription.status, models.Subscription.user_id, models.Subscription.user, models.Subscription.payments, models.Subscription.created_at, models.Subscription.expires_at]
