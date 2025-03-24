@@ -559,7 +559,7 @@ class CallbackHandlers:
                         user_to_notify = user.get("user_id")
 
                 plans = await self.menu_handlers.get_plans()
-                subscription_plan_index = subscription.get("plan_id")
+                subscription_plan_index = subscription.get("plan_id") - 1
                 subscription_plan = plans[subscription_plan_index]["name"]
                 logger.info(f"Will notify user {user_to_notify} about payment rejection")
             else:
