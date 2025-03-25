@@ -42,6 +42,7 @@ class Payment(Base):
     status = Column(String(50))  # pending/verified/invalid/pending_verification
     receipt_url = Column(String(512))  # Store the local URL
     subscription_id = Column(Integer, ForeignKey("subscriptions.id"))
+    is_international = Column(Boolean, default=False)  # Flag for international payments
 
 class TicketReply(Base):
     __tablename__ = "TicketReplies"

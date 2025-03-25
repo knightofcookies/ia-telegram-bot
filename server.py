@@ -60,7 +60,7 @@ class PlanAdmin(ModelView, model=models.Plan):
     column_list = [models.Plan.id, models.Plan.name, models.Plan.price, models.Plan.duration_days, models.Plan.telegram_channel_id, models.Plan.description]
 
 class PaymentAdmin(ModelView, model=models.Payment):
-    column_list = [models.Payment.subscription, models.Payment.id, models.Payment.amount, models.Payment.status, models.Payment.receipt_url, models.Payment.subscription_id]
+    column_list = [models.Payment.subscription, models.Payment.id, models.Payment.amount, models.Payment.status, models.Payment.is_international, models.Payment.receipt_url, models.Payment.subscription_id]
 
 class TicketReplyAdmin(ModelView, model=models.TicketReply):
     column_list = [models.TicketReply.id, models.TicketReply.ticket_id, models.TicketReply.reply, models.TicketReply.replied_by, models.TicketReply.timestamp, models.TicketReply.ticket, models.TicketReply.replier]
@@ -248,7 +248,6 @@ def initiate_payment(subscription_id: int, db: Session = Depends(get_db)):
     db.refresh(db_payment)
 
     return {
-        "vpa": getenv("VPA"),
         "amount": plan.price,
         "payment_id": db_payment.id  # Return real payment ID
     }
@@ -337,9 +336,16 @@ def update_payment(
         raise HTTPException(status_code=404, detail="Payment not found")
 
     # Update fields
-    db_payment.receipt_url = payment_update.receipt_url
-    db_payment.amount = payment_update.amount
-    db_payment.status = "pending_verification"  # Set appropriate status
+    if hasattr(payment_update, "receipt_url") and payment_update.receipt_url:
+        db_payment.receipt_url = payment_update.receipt_url
+    if hasattr(payment_update, "amount") and payment_update.amount:
+        db_payment.amount = payment_update.amount
+    if hasattr(payment_update, "is_international") and payment_update.is_international is not None:
+        db_payment.is_international = payment_update.is_international
+
+    # Only update status to pending_verification if receipt has been uploaded
+    if db_payment.receipt_url and db_payment.receipt_url != "pending_upload":
+        db_payment.status = "pending_verification"
 
     db.commit()
     db.refresh(db_payment)
@@ -353,4 +359,4 @@ def read_user(user_id: int, db: Session = Depends(get_db)):
     return db_user
 
 if __name__ == "__main__":
-    uvicorn.run("server:app", host="0.0.0.0", port=8000)
+    uvicorn.run("server:app", host="localhost", port=8000)

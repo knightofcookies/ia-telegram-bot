@@ -42,6 +42,7 @@ class PaymentCreate(BaseModel):
     subscription_id: int
     amount: float
     receipt_url: str  # Local URL of the receipt
+    is_international: Optional[bool] = False
 
 class CustomerCarePersonnelCreate(BaseModel):
     name: str

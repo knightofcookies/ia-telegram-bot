@@ -37,6 +37,12 @@ API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")  # Added env f
 PLANS_DISCLAIMER = os.getenv("PLANS_DISCLAIMER")
 MAX_FILE_SIZE_MB = 5  # 5MB maximum file size for receipts
 STAFF_USERNAME = os.getenv("STAFF_USERNAME")
+REMITLY_FIRST_NAME = os.getenv("REMITLY_FIRST_NAME")
+REMITLY_LAST_NAME = os.getenv("REMITLY_LAST_NAME")
+REMITLY_REASON = os.getenv("REMITLY_REASON", "Service payment")
+REMITLY_BANK = os.getenv("REMITLY_BANK", "Bank account")
+INTL_VPA = os.getenv("INTL_VPA")
+DOM_VPA = os.getenv("DOM_VPA")
 
 # Configure logging
 logging.basicConfig(
@@ -223,7 +229,7 @@ class MenuHandlers:
 
         ticket_buttons = [
             [InlineKeyboardButton(text=f"Ticket #{t['id']} ({'Resolved' if t['resolved'] else 'Open'})", callback_data=f"ticket_{t['id']}")]
-            for t in tickets
+            for t in tickets if not t['resolved']
         ]
         ticket_buttons.append([InlineKeyboardButton(text="🔄 Refresh", callback_data="staff_tickets")])
         keyboard = InlineKeyboardMarkup(inline_keyboard=ticket_buttons)
@@ -311,6 +317,12 @@ class CallbackHandlers:
         elif callback_data.startswith("payment_"):
             await self._handle_payment_details(query)
 
+        elif callback_data.startswith("pay_method_local_"):
+            await self._handle_local_payment(query, state)
+
+        elif callback_data.startswith("pay_method_intl_"):
+            await self._handle_international_payment(query, state)
+
         elif callback_data.startswith("verify_"):
             await self._handle_verify_payment(query)
 
@@ -374,7 +386,7 @@ class CallbackHandlers:
 
         await query.message.answer(ticket_details, reply_markup=action_keyboard)
 
-# Helper methods for subscription handling
+    # Helper methods for subscription handling
     async def _handle_purchase_subscription(self, query: CallbackQuery):
         plans = await self.menu_handlers.get_plans()
         if not plans or "error" in plans:
@@ -407,7 +419,6 @@ class CallbackHandlers:
         subscription_data = {
             "telegram_user_id": user_id,
             "plan": selected_plan["name"],
-            # "status": "pending_payment"
         }
         subscription = await self.api_client.request("POST", "/subscriptions/", subscription_data)
 
@@ -419,25 +430,91 @@ class CallbackHandlers:
 
         await state.update_data(
             subscription_id=subscription["id"],
-            payment_id=payment_info["payment_id"]
+            payment_id=payment_info["payment_id"],
+            plan_price=selected_plan["price"]
         )
 
-        qr_data = f"upi://pay?pa={payment_info['vpa']}&pn=Example"
+        # Show payment method selection
+        payment_method_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🇮🇳 Indian UPI Payment", callback_data=f"pay_method_local_{subscription['id']}")],
+            [InlineKeyboardButton(text="🌍 International Payment (Remitly)", callback_data=f"pay_method_intl_{subscription['id']}")],
+            [InlineKeyboardButton(text="❌ Cancel", callback_data="main_menu")]
+        ])
+
+        await query.message.answer(
+            f"💳 Please select your payment method for {selected_plan['name']} (₹{selected_plan['price']}):",
+            reply_markup=payment_method_keyboard
+        )
+
+    async def _handle_international_payment(self, query: CallbackQuery, state: FSMContext):
+        """Handle international payment through Remitly with a separate UPI VPA"""
+        subscription_id = int(query.data.split("_")[3])
+        data = await state.get_data()
+        payment_id = data.get("payment_id")
+        plan_price = data.get("plan_price")
+
+        # Update payment with international flag
+        await self.api_client.request("PUT", f"/payments/{payment_id}", {
+            "subscription_id": subscription_id,
+            "amount": plan_price,
+            "receipt_url": "pending_upload",
+            "is_international": True
+        })
+
+        # Create detailed instructions for Remitly payment with international VPA
+        instructions = (
+            f"💱 <b>International Payment Instructions (Remitly)</b>\n\n"
+            f"1️⃣ Open or download the Remitly app\n"
+            f"2️⃣ Choose India as the destination country\n"
+            f"3️⃣ Select <b>UPI Transfer</b> as the delivery method\n"
+            f"4️⃣ Enter the following details:\n"
+            f"   • VPA: <code>{INTL_VPA}</code>\n"  # Using the international VPA
+            f"   • First Name: <code>{REMITLY_FIRST_NAME}</code>\n"
+            f"   • Last Name: <code>{REMITLY_LAST_NAME}</code>\n"
+            f"   • Reason: <code>{REMITLY_REASON}</code>\n"
+            f"   • Amount: <code>₹{plan_price}</code>\n"
+            f"5️⃣ Complete the payment process\n"
+            f"6️⃣ 📸 Send the screenshot of your payment confirmation here\n\n"
+            f"ℹ️ Our team will verify your payment and activate your subscription."
+        )
+
+        await query.message.answer(instructions, parse_mode=ParseMode.HTML)
+        await state.set_state(PaymentState.WAITING_FOR_RECEIPT)
+
+    async def _handle_local_payment(self, query: CallbackQuery, state: FSMContext):
+        """Handle local (Indian) UPI payment"""
+        subscription_id = int(query.data.split("_")[3])
+        data = await state.get_data()
+        payment_id = data.get("payment_id")
+        plan_price = data.get("plan_price")
+
+        # Get payment info
+        payment_info = await self.api_client.request("GET", f"/payments/{payment_id}")
+        if not payment_info:
+            await query.message.answer("Error retrieving payment information. Please try again.")
+            return
+
+        # Mark payment as local
+        await self.api_client.request("PUT", f"/payments/{payment_id}", {
+            "subscription_id": subscription_id,
+            "amount": plan_price,
+            "receipt_url": "pending_upload",
+            "is_international": False
+        })
+
+        # Generate QR code for UPI payment using the standard VPA
+        qr_data = f"upi://pay?pa={DOM_VPA}&pn=Example&am={plan_price}"
         qr_buffer = self.utils.generate_qr_code(qr_data)
         qr_bytes = qr_buffer.getvalue()
         qr_image = BufferedInputFile(qr_bytes, filename="qr_code.png")
 
         await query.message.answer_photo(
             photo=qr_image,
-            caption=f"💳 Please send ₹{payment_info['amount']} to VPA: {payment_info['vpa']}\n"
+            caption=f"💳 Please send ₹{plan_price} to VPA: {DOM_VPA}\n"
                     "📸 After payment, send the receipt screenshot here."
         )
 
         await state.set_state(PaymentState.WAITING_FOR_RECEIPT)
-        await state.update_data(
-            subscription_id=subscription["id"],
-            plan_price=selected_plan["price"]
-        )
 
     # Handle One Off Special Plan differently
     async def _handle_special_plan_payment(self, query: CallbackQuery, user_id: int, plan_name: str):
@@ -498,9 +575,11 @@ class CallbackHandlers:
                 with open(file_path, "rb") as f:
                     receipt_bytes = f.read()
 
+                payment_type = "🌍 International" if payment.get("is_international") else "🇮🇳 Local"
+
                 await query.message.answer_photo(
                     photo=BufferedInputFile(receipt_bytes, filename=file_name),
-                    caption=f"Payment Details:\nAmount: ₹{payment['amount']}\nSubscription ID: {payment['subscription_id']}"
+                    caption=f"Payment Details:\nAmount: ₹{payment['amount']}\nType: {payment_type}\nSubscription ID: {payment['subscription_id']}"
                 )
             else:
                 await query.message.answer("Receipt image not found on the server.")
@@ -512,7 +591,12 @@ class CallbackHandlers:
             [InlineKeyboardButton(text="Reject", callback_data=f"reject_{payment_id}")],
             [InlineKeyboardButton(text="← Back", callback_data="staff_payments")]
         ])
-        await query.message.answer(f"Payment ID: {payment['id']}\nStatus: {payment['status']}", reply_markup=action_keyboard)
+
+        payment_type = "🌍 International" if payment.get("is_international") else "🇮🇳 Local"
+        await query.message.answer(
+            f"Payment ID: {payment['id']}\nStatus: {payment['status']}\nType: {payment_type}",
+            reply_markup=action_keyboard
+        )
 
     async def _handle_verify_payment(self, query: CallbackQuery):
         payment_id = int(query.data.split("_")[1])
@@ -757,14 +841,19 @@ class StateHandlers:
                         receipt_url = await self.utils.save_file_locally(file_data, file_name)
 
                         user_data = await state.get_data()
+                        payment = await self.api_client.request("GET", f"/payments/{user_data['payment_id']}")
                         payment_data = {
                             "subscription_id": user_data["subscription_id"],
                             "amount": user_data["plan_price"],
-                            "receipt_url": receipt_url
+                            "receipt_url": receipt_url,
+                            "is_international": payment["is_international"]
                         }
 
                         await self.api_client.request("PUT", f"/payments/{user_data['payment_id']}", payment_data)
-                        await message.answer("✅ Payment received! Awaiting staff verification.")
+                        await message.answer(
+                            "✅ Payment receipt received! Our team will verify your payment shortly.\n"
+                            "You'll be notified once your subscription is activated."
+                        )
                         await state.clear()
 
                         if STAFF_CHAT_ID:
@@ -787,37 +876,52 @@ class StateHandlers:
             return
 
     async def handle_support_ticket_issue(self, message: Message, state: FSMContext):
+        if message.photo:
+            await message.answer("Please describe your issue before uploading images.")
+            return
         await state.update_data(issue_description=message.text, attachments=[])
         await message.answer("Thank you for describing your issue. You can now send additional messages or images if needed. When you're done, type /done.")
         await state.set_state(SupportTicketState.COLLECTING_ADDITIONAL_INFO)
 
-    async def handle_additional_info(self, message: Message, state: FSMContext):
+    async def handle_additional_info(self, message: Message, state: FSMContext, bot: Bot):
+        current_state = await state.get_state()
+        if not current_state:
+            await message.answer("Your ticket has already been submitted. Use /start to create a new ticket.")
+            return
+
         data = await state.get_data()
         attachments = data.get("attachments", [])
 
         if message.text:
             if message.text.lower() == "/done":
-                # Rate limiting logic
                 user_id = message.from_user.id
-                rate_limit_key = f"ticket_rate_limit:{user_id}"
-                current_time = int(time.time())
-                rate_limit_window = 3600  # 1 hour in seconds
-                max_tickets_per_window = 3  # Maximum tickets allowed per time window
 
-                # Get the current count of tickets raised by the user
-                redis = self.storage.redis  # Access the Redis client directly
-                ticket_count = await redis.get(rate_limit_key)
-                if ticket_count:
-                    ticket_count = int(ticket_count)
-                    if ticket_count >= max_tickets_per_window:
-                        await message.answer("🚫 You have raised too many support tickets recently. Please wait before raising another one.")
-                        return
+                # First check if user is staff
+                is_staff = await self.api_client.request("GET", f"/staff/check/{user_id}")
+                if is_staff and is_staff.get("is_staff", False):
+                    # Skip rate limiting for staff members
+                    proceed_with_ticket = True
                 else:
-                    ticket_count = 0
+                    # Apply rate limiting only for non-staff users
+                    rate_limit_key = f"ticket_rate_limit:{user_id}"
+                    redis = self.storage.redis
+                    ticket_count = await redis.get(rate_limit_key)
 
-                # Increment the ticket count and set the expiration time
-                await redis.set(rate_limit_key, ticket_count + 1, ex=rate_limit_window)
+                    if ticket_count:
+                        ticket_count = int(ticket_count)
+                        proceed_with_ticket = ticket_count < 3  # Max 3 tickets per hour for non-staff
+                    else:
+                        proceed_with_ticket = True
+                        ticket_count = 0
 
+                    if proceed_with_ticket:
+                        await redis.set(rate_limit_key, ticket_count + 1, ex=3600)  # 1 hour expiration
+
+                if not proceed_with_ticket:
+                    await message.answer("🚫 You have raised too many support tickets recently. Please wait before raising another one.")
+                    return
+
+                # Proceed with ticket creation
                 issue_description = data.get("issue_description", "")
                 ticket_data = {
                     "telegram_user_id": user_id,
@@ -829,8 +933,9 @@ class StateHandlers:
 
                 if response and "error" not in response:
                     await message.answer("📨 Your support ticket has been created. We'll get back to you soon! ⏳")
+                    await state.clear()
 
-                    # Notify staff about the new ticket
+                    # Staff notification logic
                     if STAFF_CHAT_ID:
                         try:
                             ticket_id = response.get("id")
@@ -842,25 +947,63 @@ class StateHandlers:
                                 f"Please respond promptly."
                             )
                             await message.bot.send_message(chat_id=STAFF_CHAT_ID, text=ticket_message)
+
+                            # Handle attachments
+                            for attachment in attachments:
+                                if attachment["type"] == "photo":
+                                    await self._send_attachment_to_staff(
+                                        bot,
+                                        attachment["file_id"],
+                                        ticket_id,
+                                        STAFF_CHAT_ID
+                                    )
                         except Exception as e:
                             logger.error(f"Failed to notify staff about new ticket: {e}")
                 else:
                     await message.answer("Failed to create the support ticket. Please try again later.")
 
-                await state.clear()
             else:
+                # Handle additional text messages
                 issue_description = data.get("issue_description", "") + "\n" + message.text
                 await state.update_data(issue_description=issue_description)
                 await message.answer("Additional message received. You can send more or type /done when finished.")
 
         elif message.photo:
+            # Handle photo attachments
             photo_file_id = message.photo[-1].file_id
-            attachments.append({"type": "photo", "file_id": photo_file_id})
-            await state.update_data(attachments=attachments)
-            await message.answer("Image received. You can send more or type /done when finished.")
+            try:
+                file = await bot.get_file(photo_file_id)
+                if file.file_size > MAX_FILE_SIZE_MB * 1024 * 1024:
+                    await message.answer(f"File too large. Maximum size is {MAX_FILE_SIZE_MB}MB.")
+                    return
+
+                attachments.append({"type": "photo", "file_id": photo_file_id})
+                await state.update_data(attachments=attachments)
+                await message.answer("Image received. You can send more or type /done when finished.")
+            except Exception as e:
+                logger.error(f"Error checking file: {e}")
+                await message.answer("Error processing image. Please try again.")
 
         else:
             await message.answer("Unsupported file type. Please send text or images.")
+
+    async def _send_attachment_to_staff(self, bot, file_id, ticket_id, staff_chat_id):
+        """Helper method to send attachments to staff chat"""
+        try:
+            file = await bot.get_file(file_id)
+            file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file.file_path}"
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(file_url) as response:
+                    if response.status == 200:
+                        file_data = await response.read()
+                        await bot.send_photo(
+                            chat_id=staff_chat_id,
+                            photo=BufferedInputFile(file_data, filename=f"ticket_attachment_{ticket_id}.jpg"),
+                            caption=f"Image attachment for Ticket ID: #{ticket_id}"
+                        )
+        except Exception as e:
+            logger.error(f"Failed to send ticket image to staff: {e}")
 
     async def handle_ticket_reply(self, message: Message, state: FSMContext):
         data = await state.get_data()
