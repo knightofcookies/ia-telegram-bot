@@ -13,6 +13,7 @@ class PlanCreate(BaseModel):
     price: confloat(gt=0)  # Ensures positive value
     duration_days: conint(gt=0)
     telegram_group_id: Optional[str] = None  # New field for Telegram group ID
+    description: Optional[str] = None
 
 class SubscriptionUpdate(BaseModel):
     plan: str | None = None

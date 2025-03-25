@@ -57,7 +57,7 @@ class SubscriptionAdmin(ModelView, model=models.Subscription):
     column_list = [models.Subscription.id, models.Subscription.plan_id, models.Subscription.plan, models.Subscription.status, models.Subscription.user_id, models.Subscription.user, models.Subscription.payments, models.Subscription.created_at, models.Subscription.expires_at]
 
 class PlanAdmin(ModelView, model=models.Plan):
-    column_list = [models.Plan.id, models.Plan.name, models.Plan.price, models.Plan.duration_days, models.Plan.telegram_channel_id]
+    column_list = [models.Plan.id, models.Plan.name, models.Plan.price, models.Plan.duration_days, models.Plan.telegram_channel_id, models.Plan.description]
 
 class PaymentAdmin(ModelView, model=models.Payment):
     column_list = [models.Payment.subscription, models.Payment.id, models.Payment.amount, models.Payment.status, models.Payment.receipt_url, models.Payment.subscription_id]

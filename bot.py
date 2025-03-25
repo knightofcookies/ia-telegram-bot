@@ -23,6 +23,7 @@ from aiogram.types import (
     Message,
 )
 from aiogram.utils.token import TokenValidationError
+from aiogram.enums.parse_mode import ParseMode
 
 # Load environment variables
 dotenv.load_dotenv()
@@ -33,7 +34,9 @@ API_KEY = os.getenv("API_KEY")
 REDIS_URL = os.getenv("REDIS_URL")
 STAFF_CHAT_ID = os.getenv("STAFF_CHAT_ID")
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")  # Added env fallback
+PLANS_DISCLAIMER = os.getenv("PLANS_DISCLAIMER")
 MAX_FILE_SIZE_MB = 5  # 5MB maximum file size for receipts
+STAFF_USERNAME = os.getenv("STAFF_USERNAME")
 
 # Configure logging
 logging.basicConfig(
@@ -384,6 +387,8 @@ class CallbackHandlers:
         ]
         plan_keyboard = InlineKeyboardMarkup(inline_keyboard=plan_buttons)
         await query.message.answer("Available subscription plans:", reply_markup=plan_keyboard)
+        description_str = "\n\n".join(["<b>" + plans[i]['name'] + "</b>:\n" + plans[i]['description'] for i in range(len(plans))]) + "\n\n" + PLANS_DISCLAIMER
+        await query.message.answer(description_str, parse_mode=ParseMode.HTML)
 
     async def _handle_plan_selection(self, query: CallbackQuery, state: FSMContext):
         plan_index = int(query.data.split("_")[1]) - 1
@@ -402,7 +407,7 @@ class CallbackHandlers:
         subscription_data = {
             "telegram_user_id": user_id,
             "plan": selected_plan["name"],
-            "status": "pending_payment"
+            # "status": "pending_payment"
         }
         subscription = await self.api_client.request("POST", "/subscriptions/", subscription_data)
 
@@ -433,6 +438,38 @@ class CallbackHandlers:
             subscription_id=subscription["id"],
             plan_price=selected_plan["price"]
         )
+
+    # Handle One Off Special Plan differently
+    async def _handle_special_plan_payment(self, query: CallbackQuery, user_id: int, plan_name: str):
+        try:
+            # Send a message to the user with instructions to contact staff
+            staff_contact_link = f"@{STAFF_USERNAME}"  # Replace with actual staff contact handle
+
+            user_instructions = (
+                f"✅ Your payment for {plan_name} has been verified!\n\n"
+                f"For this special offer, please contact our staff directly at {staff_contact_link} "
+                f"to receive your benefits. Mention that you've purchased the '{plan_name}' plan."
+            )
+
+            await query.bot.send_message(chat_id=user_id, text=user_instructions)
+
+            # Notify staff about this special plan purchase
+            if STAFF_CHAT_ID:
+                staff_notification = (
+                    f"🔔 SPECIAL PLAN PURCHASE ALERT 🔔\n\n"
+                    f"User @{query.from_user.username or user_id} has purchased the '{plan_name}' plan.\n"
+                    f"Please expect them to contact you for further assistance.\n\n"
+                    f"User ID: {user_id}"
+                )
+
+                await query.bot.send_message(chat_id=STAFF_CHAT_ID, text=staff_notification)
+
+            logger.info(f"Special plan '{plan_name}' purchase handled for user {user_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to handle special plan for user {user_id}: {e}")
+            return False
 
     async def _handle_view_subscriptions(self, query: CallbackQuery):
         user_id = query.from_user.id
@@ -509,11 +546,28 @@ class CallbackHandlers:
                 subscription_plan_index = subscription.get("plan_id") - 1
                 subscription_plan = plans[subscription_plan_index]["name"]
                 telegram_channel_id = plans[subscription_plan_index].get("telegram_channel_id")
+
+                # Check if this is a special plan that needs special handling
+                is_special_plan = plans[subscription_plan_index].get("name").startswith("Special")
+
+                # If this is a special plan, handle it differently
+                if is_special_plan and user_to_notify:
+                    success = await self._handle_special_plan_payment(
+                        query,
+                        user_to_notify,
+                        subscription_plan
+                    )
+                    if success:
+                        # If special plan was handled successfully, we can skip the regular notification flow
+                        await self.menu_handlers.show_staff_payments(query.message)
+                        return
+                    # If special plan handling failed, continue with normal flow as fallback
+
                 logger.info(f"Will notify user {user_to_notify} about payment verification")
             else:
                 logger.error(f"Subscription {payment['subscription_id']} not found")
 
-        # Notify user about verified payment
+        # Regular notification flow for normal plans
         if user_to_notify:
             try:
                 verification_message = (

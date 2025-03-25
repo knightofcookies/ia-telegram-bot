@@ -17,9 +17,10 @@ session = Session(engine)
 def seed_data():
     # Add subscription plans
     plans = [
-        Plan(name="Basic", price=500, duration_days=60, telegram_channel_id=getenv('BASIC_CHANNEL_ID')),
-        Plan(name="Premium", price=2000, duration_days=60, telegram_channel_id=getenv('PREMIUM_CHANNEL_ID')),
-        Plan(name="Premium Plus", price=5000, duration_days=60, telegram_channel_id=getenv('PREMIUM_PLUS_CHANNEL_ID')),
+        Plan(name="Basic", price=500, duration_days=60, telegram_channel_id=getenv('BASIC_CHANNEL_ID'), description=getenv("BASIC_DESCRIPTION")),
+        Plan(name="Premium", price=2000, duration_days=60, telegram_channel_id=getenv('PREMIUM_CHANNEL_ID'), description=getenv("PREMIUM_DESCRIPTION")),
+        Plan(name="Premium Plus", price=5000, duration_days=60, telegram_channel_id=getenv('PREMIUM_PLUS_CHANNEL_ID'), description=getenv("PREMIUM_PLUS_DESCRIPTION")),
+        Plan(name="Special One Off", price=1000, duration_days=0, telegram_channel_id=getenv('SPECIAL_ONE_OFF_CHANNEL_ID'), description=getenv("SPECIAL_ONE_OFF_DESCRIPTION")),
     ]
     session.add_all(plans)
 

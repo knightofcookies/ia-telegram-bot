@@ -32,6 +32,7 @@ class Plan(Base):
     price = Column(Float)
     duration_days = Column(Integer)
     telegram_channel_id = Column(String(255), nullable=True)  # Changed from group_id to channel_id
+    description = Column(String(8191))
 
 class Payment(Base):
     __tablename__ = "payments"
