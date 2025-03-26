@@ -503,7 +503,7 @@ class CallbackHandlers:
         })
 
         # Generate QR code for UPI payment using the standard VPA
-        qr_data = f"upi://pay?pa={DOM_VPA}&pn=Example&am={plan_price}"
+        qr_data = f"upi://pay?pa={DOM_VPA}&pn=Example"
         qr_buffer = self.utils.generate_qr_code(qr_data)
         qr_bytes = qr_buffer.getvalue()
         qr_image = BufferedInputFile(qr_bytes, filename="qr_code.png")
