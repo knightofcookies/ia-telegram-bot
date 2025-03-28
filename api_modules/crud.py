@@ -2,6 +2,9 @@ from api_modules import models, schemas
 from api_modules.database import SessionLocal
 from datetime import timedelta, datetime
 from sqlalchemy.orm import Session
+import pytz
+
+IST = pytz.timezone('Asia/Kolkata')
 
 def create_subscription(db: Session, subscription: schemas.SubscriptionCreate):
     # Fetch the user by telegram_user_id
@@ -14,10 +17,12 @@ def create_subscription(db: Session, subscription: schemas.SubscriptionCreate):
     if not db_plan:
         raise ValueError("Invalid plan")
 
+    ist_time = datetime.utcnow().replace(tzinfo=pytz.utc).astimezone(IST)
+
     # Create the subscription
     db_subscription = models.Subscription(
         plan_id=db_plan.id,  # Set plan_id instead of plan
-        expires_at=datetime.utcnow() + timedelta(days=db_plan.duration_days),
+        expires_at=ist_time + timedelta(days=db_plan.duration_days),
         user_id=db_user.id,
         status="pending_payment"
     )

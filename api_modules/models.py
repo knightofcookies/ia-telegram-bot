@@ -1,8 +1,15 @@
 from sqlalchemy import Text, Boolean, Column, Integer, String, Float, ForeignKey, DateTime, BigInteger, JSON
 from sqlalchemy.orm import relationship, declarative_base
 from datetime import datetime
+import pytz
 
 Base = declarative_base()  # Create the Base class
+
+IST = pytz.timezone("Asia/Kolkata")
+
+def get_ist_time():
+    """Returns current time in IST."""
+    return datetime.utcnow().replace(tzinfo=pytz.utc).astimezone(IST)
 
 # Update Subscription model
 class Subscription(Base):
@@ -14,7 +21,7 @@ class Subscription(Base):
     user_id = Column(Integer, ForeignKey("Users.id"))
     user = relationship("User", back_populates="subscriptions")
     payments = relationship("Payment", back_populates="subscription")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=get_ist_time)
     expires_at = Column(DateTime)
 
 class User(Base):
@@ -50,7 +57,7 @@ class TicketReply(Base):
     ticket_id = Column(Integer, ForeignKey("SupportTickets.id"))
     reply = Column(Text)
     replied_by = Column(Integer, ForeignKey("Users.id"))
-    timestamp = Column(DateTime)
+    timestamp = Column(DateTime, default=get_ist_time)
     ticket = relationship("SupportTicket", back_populates="replies")
     replier = relationship("User")
 
@@ -69,4 +76,4 @@ class SupportTicket(Base):
     resolved = Column(Boolean, default=False)
     attachments = Column(JSON)  # Store attachments as JSON
     replies = relationship("TicketReply", back_populates="ticket")
-    created_at = Column(DateTime, default=datetime.utcnow)  # Add this line
+    created_at = Column(DateTime, default=get_ist_time)  # Add this line
