@@ -502,17 +502,24 @@ class CallbackHandlers:
             "is_international": False
         })
 
-        # Generate QR code for UPI payment using the standard VPA
-        qr_data = f"upi://pay?pa={DOM_VPA}&pn=Example"
-        qr_buffer = self.utils.generate_qr_code(qr_data)
-        qr_bytes = qr_buffer.getvalue()
-        qr_image = BufferedInputFile(qr_bytes, filename="qr_code.png")
+        if plan_price > 2000:
+            await query.message.answer(
+                f"💳 Please send ₹{plan_price} to VPA: <code>{INTL_VPA}</code>\n"
+                "📸 After payment, send the receipt screenshot here.\n",
+                parse_mode=ParseMode.HTML
+            )
+        else:
+            qr_data = f"upi://pay?pa={DOM_VPA}"
+            qr_buffer = self.utils.generate_qr_code(qr_data)
+            qr_bytes = qr_buffer.getvalue()
+            qr_image = BufferedInputFile(qr_bytes, filename="qr_code.png")
 
-        await query.message.answer_photo(
-            photo=qr_image,
-            caption=f"💳 Please send ₹{plan_price} to VPA: {DOM_VPA}\n"
-                    "📸 After payment, send the receipt screenshot here."
-        )
+            await query.message.answer_photo(
+                photo=qr_image,
+                caption=f"💳 Please send ₹{plan_price} to VPA: <code>{DOM_VPA}</code>\n"
+                        "📸 After payment, send the receipt screenshot here.",
+                parse_mode=ParseMode.HTML
+            )
 
         await state.set_state(PaymentState.WAITING_FOR_RECEIPT)
 
