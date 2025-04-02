@@ -482,19 +482,17 @@ class CallbackHandlers:
         await state.set_state(PaymentState.WAITING_FOR_RECEIPT)
 
     async def _handle_local_payment(self, query: CallbackQuery, state: FSMContext):
-        """Handle local (Indian) UPI payment"""
+        """Handle local (Indian) UPI payment with different VPAs based on amount"""
         subscription_id = int(query.data.split("_")[3])
         data = await state.get_data()
         payment_id = data.get("payment_id")
         plan_price = data.get("plan_price")
 
-        # Get payment info
-        payment_info = await self.api_client.request("GET", f"/payments/{payment_id}")
-        if not payment_info:
-            await query.message.answer("Error retrieving payment information. Please try again.")
+        vpa = os.getenv("LOW_AMT_VPA") if plan_price < 1000 else os.getenv("HIGH_AMT_VPA")
+        if not vpa:
+            await query.message.answer("Payment configuration error. Please contact support.")
             return
 
-        # Mark payment as local
         await self.api_client.request("PUT", f"/payments/{payment_id}", {
             "subscription_id": subscription_id,
             "amount": plan_price,
@@ -502,22 +500,22 @@ class CallbackHandlers:
             "is_international": False
         })
 
-        qr_data = f"upi://pay?pa={DOM_VPA}"
+        qr_data = f"upi://pay?pa={vpa}"
         qr_buffer = self.utils.generate_qr_code(qr_data)
         qr_bytes = qr_buffer.getvalue()
         qr_image = BufferedInputFile(qr_bytes, filename="qr_code.png")
 
-        if plan_price == 5000:
+        if plan_price > 2000:
             await query.message.answer_photo(
                 photo=qr_image,
-                caption=f"💳 Please send ₹{plan_price} to VPA <code>{DOM_VPA}</code> by paying it in three parts (₹2000, ₹2000 and ₹1000)\n"
+                caption=f"💳 Please send ₹{plan_price} to VPA <code>{vpa}</code> by paying it in three parts (₹2000, ₹2000 and ₹1000)\n"
                 "📸 After payment, send the receipt screenshot here.\n",
                 parse_mode=ParseMode.HTML
             )
         else:
             await query.message.answer_photo(
                 photo=qr_image,
-                caption=f"💳 Please send ₹{plan_price} to VPA: <code>{DOM_VPA}</code>\n"
+                caption=f"💳 Please send ₹{plan_price} to VPA: <code>{vpa}</code>\n"
                         "📸 After payment, send the receipt screenshot here.",
                 parse_mode=ParseMode.HTML
             )
