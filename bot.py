@@ -488,7 +488,7 @@ class CallbackHandlers:
         payment_id = data.get("payment_id")
         plan_price = data.get("plan_price")
 
-        vpa = os.getenv("LOW_AMT_VPA") if plan_price < 1000 else os.getenv("HIGH_AMT_VPA")
+        vpa = os.getenv("LOW_AMT_VPA") if plan_price <= 1000 else os.getenv("HIGH_AMT_VPA")
         if not vpa:
             await query.message.answer("Payment configuration error. Please contact support.")
             return
@@ -505,7 +505,7 @@ class CallbackHandlers:
         qr_bytes = qr_buffer.getvalue()
         qr_image = BufferedInputFile(qr_bytes, filename="qr_code.png")
 
-        if plan_price > 2000:
+        if plan_price == 5000:
             await query.message.answer_photo(
                 photo=qr_image,
                 caption=f"💳 Please send ₹{plan_price} to VPA <code>{vpa}</code> by paying it in three parts (₹2000, ₹2000 and ₹1000)\n"
